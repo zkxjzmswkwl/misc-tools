@@ -1,6 +1,5 @@
-// Upon tapping lcontrol, we simulate a keypress and release of escape.
-// Upon holding lcontrol, we simulate a keydown of lcontrol.
-// Upon releasing lcontrol after holding it, we simulate a keyup of lcontrol.
+// Upon tapping lcontrol, so long as no other keys are pressed between press and release, we simulate a keypress and release of escape.
+// Upon holding lcontrol and tapping another key, we simulate a combination of control + that other key.
 // tl;dr puts escape/lcontrol on the same key.
 #include <iostream>
 
@@ -10,7 +9,10 @@ HHOOK g_keyboard_hook;
 
 struct Context {
   unsigned int ctrl_keypress_duration = 0;
+  bool is_ctrl_key_pressed = false;
   bool is_ctrl_key_sim_down = false;
+  bool other_key_involved = false;
+  bool mutex = false;
 }
 g_context;
 
@@ -42,39 +44,29 @@ LRESULT CALLBACK hook_callback(int nCode, WPARAM wParam, LPARAM lParam) {
     KBDLLHOOKSTRUCT * pKeyboard = (KBDLLHOOKSTRUCT * ) lParam;
 
     if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
-      // if lcontrol is pressed down
-      if (pKeyboard -> vkCode == 162) {
-        // increment some arbitrary representation of how long that key has been pressed for.
-        g_context.ctrl_keypress_duration++;
-        // check if it's > 1 and if we've not already simulated a downward press for lcontrol.
-        if (g_context.ctrl_keypress_duration > 1 && !g_context.is_ctrl_key_sim_down) {
-          // synthetic input for key down.
-          sim_key_down(VK_LCONTROL);
-          // flip to check against above as to avoid spam.
-          g_context.is_ctrl_key_sim_down = true;
-        }
-        // returning non-zero in this callback blocks the input.
+      if (pKeyboard -> vkCode == VK_LCONTROL) {
+        g_context.is_ctrl_key_pressed = true;
+        return 1;
+      } else if (g_context.is_ctrl_key_pressed) {
+        g_context.other_key_involved = true;
+        UnhookWindowsHookEx(g_keyboard_hook);
+        sim_key_down(VK_LCONTROL);
+        sim_key_down(pKeyboard -> vkCode);
+        sim_key_up(pKeyboard -> vkCode);
+        sim_key_up(VK_LCONTROL);
+        g_keyboard_hook = SetWindowsHookEx(WH_KEYBOARD_LL, hook_callback, NULL, 0);
         return 1;
       }
     }
 
-    // if lcontrol is released
-    if (wParam == WM_KEYUP && pKeyboard -> vkCode == 162) {
-      // if the key was pressed for less than 1 <arbitrary unit of time>
-      if (g_context.ctrl_keypress_duration <= 1) {
-        // synthetic input for escape key down and release.
-        sim_key_down(VK_ESCAPE);
-        sim_key_up(VK_ESCAPE);
-        g_context.ctrl_keypress_duration = 0;
-        // returning non-zero in this callback blocks the input.
-        return 1;
-      } else {
-        // If we held down lcontrol for long enough, it means we want to actually input lcontrol.
-        sim_key_up(VK_LCONTROL);
-        // reset state
-        g_context.ctrl_keypress_duration = 0;
-        g_context.is_ctrl_key_sim_down = false;
-        // returning non-zero in this callback blocks the input.
+    if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+      if (pKeyboard -> vkCode == VK_LCONTROL) {
+        g_context.is_ctrl_key_pressed = false;
+        if (!g_context.other_key_involved) {
+          sim_key_down(VK_ESCAPE);
+          sim_key_up(VK_ESCAPE);
+        }
+        g_context.other_key_involved = false;
         return 1;
       }
     }
