@@ -8,11 +8,8 @@
 HHOOK g_keyboard_hook;
 
 struct Context {
-  unsigned int ctrl_keypress_duration = 0;
   bool is_ctrl_key_pressed = false;
-  bool is_ctrl_key_sim_down = false;
   bool other_key_involved = false;
-  bool mutex = false;
 }
 g_context;
 
